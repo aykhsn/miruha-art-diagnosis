@@ -110,7 +110,7 @@ exports.handler = async (event) => {
   const filledWords = words.filter(w => w && w.trim());
 
   // ── 4. Gemini API呼び出し ──
-  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
 
   let geminiRes;
   try {
@@ -122,7 +122,6 @@ exports.handler = async (event) => {
         generationConfig: {
           temperature: 0.8,
           maxOutputTokens: 1024,
-          responseMimeType: 'application/json',
         },
         safetySettings: [
           { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
@@ -136,8 +135,8 @@ exports.handler = async (event) => {
 
   if (!geminiRes.ok) {
     const errText = await geminiRes.text();
-    console.error('Gemini error:', errText);
-    return { statusCode: 502, headers, body: JSON.stringify({ error: 'AI診断に失敗しました。もう一度試してね。' }) };
+    console.error('Gemini error status:', geminiRes.status, errText);
+    return { statusCode: 502, headers, body: JSON.stringify({ error: `AI診断に失敗しました（${geminiRes.status}）。もう一度試してね。` }) };
   }
 
   const geminiData = await geminiRes.json();

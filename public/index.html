@@ -587,14 +587,17 @@ function startLoadingAnimation(idx){
     pctEl.textContent=displayPct+'%';
   }, pctInterval);
 
-  setTimeout(()=>{
-    clearInterval(waveAnim);
-    clearInterval(loadingMsgTimer);
-    clearInterval(loadingPctTimer);
-    bar.style.width='100%';
-    pctEl.textContent='100%';
-    setTimeout(()=>showResult(idx),400);
-  }, TOTAL);
+  // API待ちモード(idx=-1)の場合は自動でshowResultしない（API完了時に呼ばれる）
+  if(idx !== -1){
+    setTimeout(()=>{
+      clearInterval(waveAnim);
+      clearInterval(loadingMsgTimer);
+      clearInterval(loadingPctTimer);
+      bar.style.width='100%';
+      pctEl.textContent='100%';
+      setTimeout(()=>showResult(idx),400);
+    }, TOTAL);
+  }
 }
 
 function startWave(){
