@@ -55,7 +55,11 @@ sec3：【次の一手は...】（100字以内）
 
 {"typeIndex":0〜11の数字,"sec1":"テキスト（改行なし・1行で）","sec2":"テキスト（改行なし・1行で）","sec3":"テキスト（改行なし・1行で）"}
 
-重要：JSONの文字列値の中に改行（\n）を入れないこと。1行のJSONで返すこと。`;
+重要（必ず守ること）：
+- sec1/sec2/sec3の値の中でダブルクォート(")を絶対に使わないこと
+- 日本語引用は必ず「」を使うこと
+- 改行を入れないこと
+- 1行のフラットなJSONで返すこと`;
 
 exports.handler = async (event) => {
   const headers = {
@@ -147,6 +151,51 @@ exports.handler = async (event) => {
     return { statusCode: 502, headers, body: JSON.stringify({ error: '通信エラー: ' + e.message }) };
   }
 
+  // 5. JSON解析
+  // JSONの文字列値内の不正な " を修復する
+  function repairJson(str) {
+    // コードブロック除去
+    str = str.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
+    // {...} 部分だけ抽出
+    const m = str.match(/\{[\s\S]*\}/);
+    if (!m) return str;
+    str = m[0];
+
+    // 各キーの値を個別に抽出して再構築
+    const typeIndex = str.match(/"typeIndex"\s*:\s*(\d+)/)?.[1];
+
+    // sec1〜3: キーの後の最初の " から、次のキー ("sec or "type) の前の " までを抽出
+    function extractVal(key, nextKey) {
+      // "key": " の後から、 ", "nextKey か "} の前まで
+      const pattern = new RegExp('"' + key + '"\\s*:\\s*"([\\s\\S]*?)"\\s*(?:,\\s*"' + nextKey + '"|\\s*[}])');
+      const match = str.match(pattern);
+      if (match) return match[1];
+      // フォールバック: 欲張りマッチ
+      const greedy = str.indexOf('"' + key + '"');
+      if (greedy < 0) return '';
+      const start = str.indexOf('"', greedy + key.length + 3) + 1;
+      const end = str.lastIndexOf('", "' + nextKey);
+      if (start > 0 && end > start) return str.slice(start, end);
+      return '';
+    }
+
+    const sec1 = extractVal('sec1', 'sec2');
+    const sec2 = extractVal('sec2', 'sec3');
+    // sec3: 最後のキーなので末尾まで
+    const sec3Match = str.match(/"sec3"\s*:\s*"([\s\S]*?)"\s*[}]/);
+    const sec3 = sec3Match ? sec3Match[1] : '';
+
+    if (!typeIndex || !sec1) return null;
+
+    // クリーンなJSONを再構築
+    return JSON.stringify({
+      typeIndex: parseInt(typeIndex),
+      sec1: sec1.replace(/\n/g, '').replace(/\r/g, ''),
+      sec2: sec2.replace(/\n/g, '').replace(/\r/g, ''),
+      sec3: sec3.replace(/\n/g, '').replace(/\r/g, ''),
+    });
+  }
+
   // 5. JSON解析（複数パターンで試みる）
   let result;
 
@@ -168,31 +217,20 @@ exports.handler = async (event) => {
   };
 
   try {
+    // まず普通にパース
     result = JSON.parse(preprocess(raw));
+    console.log('parse success: pattern 1');
   } catch {
     try {
-      result = JSON.parse(sanitize(raw));
-    } catch {
-      try {
-        // 最終手段: 正規表現でsec1〜3を直接抽出
-        const ti = raw.match(/"typeIndex"\s*:\s*(\d+)/);
-        const s1 = raw.match(/"sec1"\s*:\s*"([\s\S]*?)"\s*,\s*"sec2"/);
-        const s2 = raw.match(/"sec2"\s*:\s*"([\s\S]*?)"\s*,\s*"sec3"/);
-        const s3 = raw.match(/"sec3"\s*:\s*"([\s\S]*?)"\s*[,}]/);
-        if (ti && s1 && s2 && s3) {
-          result = {
-            typeIndex: parseInt(ti[1]),
-            sec1: s1[1].replace(/\\n/g,'').replace(/\n/g,''),
-            sec2: s2[1].replace(/\\n/g,'').replace(/\n/g,''),
-            sec3: s3[1].replace(/\\n/g,'').replace(/\n/g,''),
-          };
-        } else {
-          throw new Error('regex extract failed');
-        }
-      } catch {
-        console.error('JSON parse fail. raw was:', raw);
-        return { statusCode: 500, headers, body: JSON.stringify({ error: '診断結果の解析に失敗しました。もう一度試してね。' }) };
-      }
+      // repairJsonで修復してパース
+      const repaired = repairJson(raw);
+      if (!repaired) throw new Error('repair failed');
+      result = JSON.parse(repaired);
+      console.log('parse success: pattern 2 (repaired)');
+    } catch (e) {
+      console.error('JSON parse fail. raw was:', raw);
+      console.error('repair error:', e.message);
+      return { statusCode: 500, headers, body: JSON.stringify({ error: '診断結果の解析に失敗しました。もう一度試してね。' }) };
     }
   }
 
