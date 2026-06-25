@@ -53,7 +53,9 @@ sec2：【今のあなたは...】（200字程度）
 sec3：【次の一手は...】（100字以内）
 「次は、ここを意識してみて！そうすると〜」と、具体的なヒントと期待できるその変化を1つだけ提案する。
 
-{"typeIndex":0〜11の数字,"sec1":"テキスト","sec2":"テキスト","sec3":"テキスト"}`;
+{"typeIndex":0〜11の数字,"sec1":"テキスト（改行なし・1行で）","sec2":"テキスト（改行なし・1行で）","sec3":"テキスト（改行なし・1行で）"}
+
+重要：JSONの文字列値の中に改行（\n）を入れないこと。1行のJSONで返すこと。`;
 
 exports.handler = async (event) => {
   const headers = {
@@ -147,22 +149,46 @@ exports.handler = async (event) => {
 
   // 5. JSON解析（複数パターンで試みる）
   let result;
+
+  // 前処理: コードブロック除去・整形
+  const preprocess = (str) => str
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/gi, '')
+    .trim();
+
+  // JSON文字列値内の改行を安全に除去
+  const sanitize = (str) => {
+    // {...}ブロックを抽出
+    const m = str.match(/\{[\s\S]*\}/);
+    if (!m) return str;
+    // 文字列値の中の改行だけを除去（キー外の改行は保持）
+    return m[0].replace(/"([^"\\]*(\\.[^"\\]*)*)"/g, (match) =>
+      match.replace(/\n/g, '').replace(/\r/g, '')
+    );
+  };
+
   try {
-    // パターン1: そのままパース
-    result = JSON.parse(raw);
+    result = JSON.parse(preprocess(raw));
   } catch {
     try {
-      // パターン2: コードブロック除去
-      const cleaned = raw
-        .replace(/```json\s*/gi, '')
-        .replace(/```\s*/gi, '')
-        .trim();
-      result = JSON.parse(cleaned);
+      result = JSON.parse(sanitize(raw));
     } catch {
       try {
-        // パターン3: {...} の部分だけ抽出
-        const match = raw.match(/\{[\s\S]*\}/);
-        if (match) result = JSON.parse(match[0]);
+        // 最終手段: 正規表現でsec1〜3を直接抽出
+        const ti = raw.match(/"typeIndex"\s*:\s*(\d+)/);
+        const s1 = raw.match(/"sec1"\s*:\s*"([\s\S]*?)"\s*,\s*"sec2"/);
+        const s2 = raw.match(/"sec2"\s*:\s*"([\s\S]*?)"\s*,\s*"sec3"/);
+        const s3 = raw.match(/"sec3"\s*:\s*"([\s\S]*?)"\s*[,}]/);
+        if (ti && s1 && s2 && s3) {
+          result = {
+            typeIndex: parseInt(ti[1]),
+            sec1: s1[1].replace(/\\n/g,'').replace(/\n/g,''),
+            sec2: s2[1].replace(/\\n/g,'').replace(/\n/g,''),
+            sec3: s3[1].replace(/\\n/g,'').replace(/\n/g,''),
+          };
+        } else {
+          throw new Error('regex extract failed');
+        }
       } catch {
         console.error('JSON parse fail. raw was:', raw);
         return { statusCode: 500, headers, body: JSON.stringify({ error: '診断結果の解析に失敗しました。もう一度試してね。' }) };
