@@ -32,7 +32,6 @@ const PROMPT = (painting, words) =>
 11. 『誰もいない静けさを愛するソロキャンパー』：余白、しんとした静けさに反応
 
 # 絶対のルール
-- JSON形式で出力してください：{"typeIndex":0〜11の数字,"sec1":"テキスト","sec2":"テキスト","sec3":"テキスト"}
 - 「今プライベートで悩んでいる」などの、占い的な当てずっぽうの心理・生活推測は絶対に書かないこと。
 - 「認知」「バイアス」「システム」などの冷たい専門用語や、「〜の証拠です」などの硬い言葉は使わないこと。
 - sec1（なぜその言葉を選んじゃったの？）は、毎回固定の文章にせず、選ばれた単語と、その絵の具体的な要素（画家の仕掛け）をその都度リアルに分析して、完全にオリジナルの文章で書くこと。
@@ -45,16 +44,15 @@ const PROMPT = (painting, words) =>
 # 出力フォーマット
 以下のJSON形式のみで返してください。マークダウン・コードブロック・説明文は不要です。
 
-sec1（200字程度）：
+sec1：【その言葉を選んだということは...】（200字程度）
 選ばれた言葉「${words.join('」「')}」と絵の具体的な要素を結びつけ、なぜそこに目が向いたのかを解説する。この絵の〇〇という部分に、あなたの〇〇というセンサーが反応しているよ、と伝える形で。毎回完全にオリジナルの文章で書くこと。
 
-sec2（200字程度）：
+sec2：【今のあなたは...】（200字程度）
 その人が今、その作品をどう味わっているのか、今回の鑑賞スタイルを全肯定しながら言い当てる。「今回はお勉強ではなく、〇〇を楽しんでいるね！」というトーンで。
 
-sec3（100字以内）：
+sec3：【次の一手は...】（100字以内）
 「次は、ここを意識してみて！そうすると〜」と、具体的なヒントと期待できるその変化を1つだけ提案する。
 
-JSON：
 {"typeIndex":0〜11の数字,"sec1":"テキスト","sec2":"テキスト","sec3":"テキスト"}`;
 
 exports.handler = async (event) => {
@@ -119,8 +117,28 @@ exports.handler = async (event) => {
       return { statusCode: 502, headers, body: JSON.stringify({ error: `Gemini API error: ${res.status}` }) };
     }
 
-    raw = json?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    console.log('Gemini raw (first 300):', raw.slice(0, 300));
+    // Gemini 2.5はthinkingブロックがparts[0]に入る場合があるため
+    // text typeのpartを全部探す
+    const parts = json?.candidates?.[0]?.content?.parts || [];
+    console.log('parts count:', parts.length);
+    console.log('parts types:', parts.map(p => p.thought ? 'thinking' : 'text'));
+    console.log('full response keys:', Object.keys(json || {}));
+
+    // textプロパティを持つpartを全て結合（thinkingブロックを除く）
+    raw = parts
+      .filter(p => !p.thought && typeof p.text === 'string')
+      .map(p => p.text)
+      .join('');
+
+    if (!raw) {
+      // fallback: parts[0].text をそのまま試す
+      raw = json?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
+
+    console.log('Gemini raw FULL:', raw);
+    if (!raw) {
+      console.error('Empty raw. Full json:', JSON.stringify(json).slice(0, 1000));
+    }
 
   } catch (e) {
     console.error('fetch error:', e.message);
@@ -155,6 +173,11 @@ exports.handler = async (event) => {
   if (!result) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: '診断結果が空でした。もう一度試してね。' }) };
   }
+
+  console.log('parsed typeIndex:', result.typeIndex);
+  console.log('parsed sec1 length:', (result.sec1 || '').length);
+  console.log('parsed sec2 length:', (result.sec2 || '').length);
+  console.log('parsed sec3 length:', (result.sec3 || '').length);
 
   return {
     statusCode: 200,
